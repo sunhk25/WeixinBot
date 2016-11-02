@@ -81,6 +81,7 @@ class WebWeixin(object):
         return description
 
     def __init__(self):
+        self.AutoList = {"大学同学":False,"小冰":False}
         self.DEBUG = False
         self.uuid = ''
         self.base_uri = ''
@@ -103,12 +104,13 @@ class WebWeixin(object):
         self.autoReplyMode = False
         self.syncHost = ''
         self.user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.109 Safari/537.36'
-        self.interactive = False
+        self.interactive = True
         self.autoOpen = False
         self.saveFolder = os.path.join(os.getcwd(), 'saved')
         self.saveSubFolders = {'webwxgeticon': 'icons', 'webwxgetheadimg': 'headimgs', 'webwxgetmsgimg': 'msgimgs',
                                'webwxgetvideo': 'videos', 'webwxgetvoice': 'voices', '_showQRCodeImg': 'qrcodes'}
         self.appid = 'wx782c26e4c19acffb'
+        #self.appid = 'wxeb7ec651dd0aefa9'
         self.lang = 'zh_CN'
         self.lastCheckTs = time.time()
         self.memberCount = 0
@@ -141,6 +143,7 @@ class WebWeixin(object):
             'fun': 'new',
             'lang': self.lang,
             '_': int(time.time()),
+            'redirect_uri':'https%3A%2F%2Fwx.qq.com%2Fcgi-bin%2Fmmwebwx-bin%2Fwebwxnewloginpage',
         }
         data = self._post(url, params, False)
         if data == '':
@@ -393,11 +396,21 @@ class WebWeixin(object):
                 [str(keyVal['Key']) + '_' + str(keyVal['Val']) for keyVal in self.SyncKey['List']])
         return dic
 
-    def webwxsendmsg(self, word, to='filehelper'):
+    def webwxsendmsg(self, word, to='filehelper', remarkName = ""):
+        #to='filehelper'#暂时全部回复到文件助手！
+        if remarkName == "不是窄":
+            to='filehelper'
+            
+        if to != 'filehelper':
+            if not self.AutoList.has_key(remarkName) or not self.AutoList[remarkName]:
+                return False
         url = self.base_uri + \
             '/webwxsendmsg?pass_ticket=%s' % (self.pass_ticket)
         clientMsgId = str(int(time.time() * 1000)) + \
             str(random.random())[:5].replace('.', '')
+        if random.randint(1,6) == 5:
+            word += "友情提示：嫌我啰嗦回复【机器窄闭嘴】，想调戏我回复【机器窄开喷】"
+        
         params = {
             'BaseRequest': self.BaseRequest,
             'Msg': {
@@ -407,12 +420,15 @@ class WebWeixin(object):
                 "ToUserName": to,
                 "LocalID": clientMsgId,
                 "ClientMsgId": clientMsgId
-            }
+            },
+            "Scene":"0"
         }
         headers = {'content-type': 'application/json; charset=UTF-8'}
         data = json.dumps(params, ensure_ascii=False).encode('utf8')
         r = requests.post(url, data=data, headers=headers)
         dic = r.json()
+        
+        print "AUTO->"+remarkName+":"+word.replace("\n",""),"Ret:"+str(dic['BaseResponse']['Ret'])
         return dic['BaseResponse']['Ret'] == 0
 
     def webwxuploadmedia(self, image_name):
@@ -743,13 +759,18 @@ class WebWeixin(object):
             name = self.getUserRemarkName(msg['FromUserName'])
             content = msg['Content'].replace('&lt;', '<').replace('&gt;', '>')
             msgid = msg['MsgId']
-
+            
+            if name == "不是窄":
+                self._chkAutoList(self.getGroupName(msg['ToUserName']), content)
+            else:
+                self._chkAutoList(name, content)
+            
             if msgType == 1:
                 raw_msg = {'raw_msg': msg}
                 self._showMsg(raw_msg)
                 if self.autoReplyMode:
-                    ans = self._xiaodoubi(content) + '\n[微信机器人自动回复]'
-                    if self.webwxsendmsg(ans, msg['FromUserName']):
+                    ans = self._tuling(content) + '\n[机器窄回复]'
+                    if self.webwxsendmsg(ans, msg['FromUserName'], name):
                         print '自动回复: ' + ans
                         logging.info('自动回复: ' + ans)
                     else:
@@ -761,12 +782,14 @@ class WebWeixin(object):
                            'message': '%s 发送了一张图片: %s' % (name, image)}
                 self._showMsg(raw_msg)
                 self._safe_open(image)
+                self.webwxsendmsg("图片刺眼不敢看[镇静]\n[机器窄回复]", msg['FromUserName'], name)
             elif msgType == 34:
                 voice = self.webwxgetvoice(msgid)
                 raw_msg = {'raw_msg': msg,
                            'message': '%s 发了一段语音: %s' % (name, voice)}
                 self._showMsg(raw_msg)
                 self._safe_open(voice)
+                self.webwxsendmsg("风太大听不清[怪我喽]\n[机器窄回复]", msg['FromUserName'], name)
             elif msgType == 42:
                 info = msg['RecommendInfo']
                 print '%s 发送了一张名片:' % name
@@ -779,12 +802,14 @@ class WebWeixin(object):
                 raw_msg = {'raw_msg': msg, 'message': '%s 发送了一张名片: %s' % (
                     name.strip(), json.dumps(info))}
                 self._showMsg(raw_msg)
+                self.webwxsendmsg("大名人跟我无缘[求近乎]\n[机器窄回复]", msg['FromUserName'], name)
             elif msgType == 47:
                 url = self._searchContent('cdnurl', content)
                 raw_msg = {'raw_msg': msg,
                            'message': '%s 发了一个动画表情，点击下面链接查看: %s' % (name, url)}
                 self._showMsg(raw_msg)
                 self._safe_open(url)
+                self.webwxsendmsg("这表情，简直没谁了[摊手]\n[机器窄回复]", msg['FromUserName'], name)
             elif msgType == 49:
                 appMsgType = defaultdict(lambda: "")
                 appMsgType.update({5: '链接', 3: '音乐', 7: '微博'})
@@ -804,6 +829,7 @@ class WebWeixin(object):
                 raw_msg = {'raw_msg': msg, 'message': '%s 分享了一个%s: %s' % (
                     name, appMsgType[msg['AppMsgType']], json.dumps(card))}
                 self._showMsg(raw_msg)
+                self.webwxsendmsg("要不要点击呢[颤抖]\n[机器窄回复]", msg['FromUserName'], name)
             elif msgType == 51:
                 raw_msg = {'raw_msg': msg, 'message': '[*] 成功获取联系人信息'}
                 self._showMsg(raw_msg)
@@ -813,15 +839,18 @@ class WebWeixin(object):
                            'message': '%s 发了一段小视频: %s' % (name, video)}
                 self._showMsg(raw_msg)
                 self._safe_open(video)
+                self.webwxsendmsg("网络不好，没法看[懊恼]\n[机器窄回复]", msg['FromUserName'], name)
             elif msgType == 10002:
                 raw_msg = {'raw_msg': msg, 'message': '%s 撤回了一条消息' % name}
                 self._showMsg(raw_msg)
+                self.webwxsendmsg("我假装没看见好啦[转身坏笑]\n[机器窄回复]", msg['FromUserName'], name)
             else:
                 logging.debug('[*] 该消息类型为: %d，可能是表情，图片, 链接或红包: %s' %
                               (msg['MsgType'], json.dumps(msg)))
                 raw_msg = {
                     'raw_msg': msg, 'message': '[*] 该消息类型为: %d，可能是表情，图片, 链接或红包' % msg['MsgType']}
                 self._showMsg(raw_msg)
+                self.webwxsendmsg("这让我如何是好[蒙逼]\n[机器窄回复]", msg['FromUserName'], name)
 
     def listenMsgMode(self):
         print '[*] 进入消息监听模式 ... 成功'
@@ -862,7 +891,7 @@ class WebWeixin(object):
                     time.sleep(1)
             if (time.time() - self.lastCheckTs) <= 20:
                 time.sleep(time.time() - self.lastCheckTs)
-
+                
     def sendMsg(self, name, word, isfile=False):
         id = self.getUSerID(name)
         if id:
@@ -878,14 +907,14 @@ class WebWeixin(object):
                         time.sleep(1)
             else:
                 if self.webwxsendmsg(word, id):
-                    print '[*] 消息发送成功'
-                    logging.debug('[*] 消息发送成功')
+                    print '[*] success消息发送成功'
+                    logging.debug('[*] successdebug消息发送成功')
                 else:
-                    print '[*] 消息发送失败'
-                    logging.debug('[*] 消息发送失败')
+                    print '[*] faild消息发送失败'
+                    logging.debug('[*] failddebug消息发送失败')
         else:
-            print '[*] 此用户不存在'
-            logging.debug('[*] 此用户不存在')
+            print '[*] userId err 此用户不存在'
+            logging.debug('[*] userId errdebug此用户不存在')
 
     def sendMsgToAll(self, word):
         for contact in self.ContactList:
@@ -944,13 +973,14 @@ class WebWeixin(object):
         self._echo('[*] 共有 %d 个群 | %d 个直接联系人 | %d 个特殊账号 ｜ %d 公众号或服务号' % (len(self.GroupList),
                                                                          len(self.ContactList), len(self.SpecialUsersList), len(self.PublicUsersList)))
         print
-        self._run('[*] 获取群 ... ', self.webwxbatchgetcontact)
-        logging.debug('[*] 微信网页版 ... 开动')
+        self._run('[*1] 获取群 ... ', self.webwxbatchgetcontact)
+        logging.debug('[*2] 微信网页版 ... 开动')
         if self.DEBUG:
             print self
         logging.debug(self)
 
-        if self.interactive and raw_input('[*] 是否开启自动回复模式(y/n): ') == 'y':
+        #if self.interactive and raw_input('[*] 是否开启自动回复模式(y/n): ') == 'y':
+        if self.interactive and 'y' == 'y':
             self.autoReplyMode = True
             print '[*] 自动回复模式 ... 开启'
             logging.debug('[*] 自动回复模式 ... 开启')
@@ -961,12 +991,19 @@ class WebWeixin(object):
         if sys.platform.startswith('win'):
             import thread
             thread.start_new_thread(self.listenMsgMode())
+            #import threading
+            #listenProcess = threading.Thread(target=self.listenMsgMode)
+            #listenProcess.start()
+            #listenProcess.join() 
         else:
             listenProcess = multiprocessing.Process(target=self.listenMsgMode)
             listenProcess.start()
 
+        print "--------1"
         while True:
+            print "--------2"
             text = raw_input('')
+            print "--------3", text
             if text == 'quit':
                 listenProcess.terminate()
                 print('[*] 退出微信')
@@ -1095,14 +1132,53 @@ class WebWeixin(object):
 
         return ''
 
-    def _xiaodoubi(self, word):
-        url = 'http://www.xiaodoubi.com/bot/chat.php'
+    def _tuling(self, word):
+        url = 'http://www.tuling123.com/openapi/api?key=d186b9c6bae345388293c47e1fec515a&info=' + word
         try:
-            r = requests.post(url, data={'chat': word})
+            r = requests.post(url)
+            dicAns = json.loads(r.content)
+            if dicAns["code"] == 100000:
+                ans = dicAns["text"]
+            elif dicAns["code"] == 200000:
+                ans = dicAns["text"]
+                ans += 'link:\n' + dicAns['url']
+            elif dicAns["code"] == 302000:
+                ans = dicAns["text"] + '\n'
+                for entry in dicAns["list"]:
+                    ans += entry['article'] + '\n'
+                
+            return ans.encode('utf-8').replace('图灵机器人', '机器窄').replace('图灵', '')
+        except:
+            return "让我一个人静静 T_T..."
+    
+
+    def _xiaodoubi(self, word):
+        #url = 'http://www.xiaodoubi.com/bot/chat.php'
+        url = 'http://api.douqq.com/?key=Z2x4MWdZaD1qPURUWlUxamZYZlY1RzZNOXdvQUFBPT0&msg=' + word
+        try:
+            #r = requests.post(url, data={'chat': word})
+            r = requests.post(url)
             return r.content
         except:
             return "让我一个人静静 T_T..."
-
+    def _qingyunChat(self, word):
+        url = 'http://api.qingyunke.com/api.php?key=free&appid=0&msg=' + word
+        try:
+            r = requests.post(url)
+            dicAns = json.loads(r.content)
+            return dicAns["content"].encode('utf-8')
+        except:
+            return "让我一个人静静 T_T..."
+            
+    def _chkAutoList(self, remarkName, content):
+        if self.AutoList.has_key(remarkName):
+            if content == "机器窄闭嘴":
+                self.AutoList[remarkName] = False
+                print "AutoList close",self.AutoList[remarkName],remarkName.decode("utf-8")
+            elif  content == "机器窄开喷":
+                self.AutoList[remarkName] = True
+                print "AutoList open",self.AutoList[remarkName],remarkName.decode("utf-8")
+            
     def _simsimi(self, word):
         key = ''
         url = 'http://sandbox.api.simsimi.com/request.p?key=%s&lc=ch&ft=0.0&text=%s' % (
